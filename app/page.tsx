@@ -1,25 +1,35 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { fetchTopProducts } from '@/lib/data';
+import { fetchTopProducts, countProducts, type ProductFilter } from '@/lib/data';
 import type { Product } from '@/types';
 import { ProductCard } from '@/components/ProductCard';
 import { RequireAuth } from '@/components/RequireAuth';
-import { Skeleton, EmptyState } from '@/components/ui/primitives';
-import { Select } from '@/components/ui/Input';
+import { Skeleton, EmptyState, Pagination } from '@/components/ui/primitives';
+import { Select, Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Link2 } from '@/components/icons';
+import { Link2, Search } from '@/components/icons';
+
+const PAGE_SIZE = 24;
 
 function CatalogInner() {
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [sort, setSort] = useState<'commission' | 'sales'>('commission');
+  const [total, setTotal] = useState(0);
+  const [filter, setFilter] = useState<ProductFilter>({ sortBy: 'commission', source: 'all', search: '', page: 1 });
 
-  useEffect(() => {
-    let alive = true;
+  const load = useCallback(async () => {
     setProducts(null);
-    fetchTopProducts({ limit: 60, sortBy: sort }).then((p) => { if (alive) setProducts(p); });
-    return () => { alive = false; };
-  }, [sort]);
+    const [items, count] = await Promise.all([
+      fetchTopProducts({ ...filter, pageSize: PAGE_SIZE }),
+      countProducts(filter),
+    ]);
+    setProducts(items);
+    setTotal(count);
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="space-y-6">
@@ -39,20 +49,33 @@ function CatalogInner() {
       </section>
 
       {/* FILTROS */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <Input
+            value={filter.search}
+            onChange={(e) => setFilter((f) => ({ ...f, search: e.target.value, page: 1 }))}
+            placeholder="Buscar produto…"
+            className="pl-9"
+          />
+        </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-ink-500">Ordenar por</span>
-          <Select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as 'commission' | 'sales')}
-            className="h-10 w-44"
-          >
+          <Select value={filter.source} onChange={(e) => setFilter((f) => ({ ...f, source: e.target.value as ProductFilter['source'], page: 1 }))} className="h-10 w-36">
+            <option value="all">Todas</option>
+            <option value="shopee">Shopee</option>
+            <option value="tiktok">TikTok</option>
+            <option value="manual">Manual</option>
+          </Select>
+          <Select value={filter.sortBy} onChange={(e) => setFilter((f) => ({ ...f, sortBy: e.target.value as ProductFilter['sortBy'], page: 1 }))} className="h-10 w-44">
             <option value="commission">Maior comissão</option>
             <option value="sales">Mais recentes</option>
+            <option value="price_asc">Menor preço</option>
+            <option value="price_desc">Maior preço</option>
           </Select>
         </div>
-        <span className="text-sm text-ink-400">{products ? `${products.length} produtos` : 'carregando…'}</span>
       </div>
+
+      <span className="text-sm text-ink-400">{products ? `${total} produto(s)` : 'carregando…'}</span>
 
       {/* GRID */}
       {!products ? (
@@ -62,13 +85,21 @@ function CatalogInner() {
       ) : products.length === 0 ? (
         <EmptyState
           icon={<Link2 className="h-8 w-8" />}
-          title="Catálogo vazio"
-          description="Importe produtos pelo painel admin para começar a divulgar."
+          title="Nenhum produto encontrado"
+          description="Ajuste a busca ou importe produtos pelo painel admin."
         />
       ) : (
         <motion.div layout className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {products.map((p, i) => <ProductCard key={p.id} product={p} index={i} />)}
         </motion.div>
+      )}
+
+      {totalPages > 1 && (
+        <Pagination
+          page={filter.page ?? 1}
+          totalPages={totalPages}
+          onChange={(p) => setFilter((f) => ({ ...f, page: p }))}
+        />
       )}
     </div>
   );

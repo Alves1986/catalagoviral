@@ -26,6 +26,7 @@ function parseCSV(text: string) {
       promoPrice: Number(row.promo_price),
       commissionPct: Number(row.commission_pct),
       originalLink: row.original_link,
+      affiliateLink: null,
       source: 'manual' as const,
     };
   });

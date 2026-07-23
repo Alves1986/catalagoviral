@@ -9,6 +9,7 @@ export interface Product {
   promoPrice: number;
   commissionPct: number;
   originalLink: string;
+  affiliateLink: string | null; // link de afiliado real (Shopee/TikTok/Manual)
   source: ProductSource;
   active: boolean;
   createdAt: string;

@@ -43,3 +43,49 @@ export function EmptyState({ icon, title, description, action }: { icon?: ReactN
 export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('animate-pulse rounded-2xl bg-ink-900/5', className)} />;
 }
+
+export function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  if (totalPages <= 1) return null;
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1).filter(
+    (p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1,
+  );
+  const items: (number | '…')[] = [];
+  pages.forEach((p, i) => {
+    if (i > 0 && p - pages[i - 1] > 1) items.push('…');
+    items.push(p);
+  });
+  return (
+    <div className="flex items-center justify-center gap-1.5 pt-2">
+      <button
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className="h-9 rounded-xl border border-ink-200 px-3 text-sm font-semibold text-ink-600 disabled:opacity-40"
+      >
+        ←
+      </button>
+      {items.map((it, i) =>
+        it === '…' ? (
+          <span key={`d${i}`} className="px-2 text-ink-400">…</span>
+        ) : (
+          <button
+            key={it}
+            onClick={() => onChange(it)}
+            className={clsx(
+              'h-9 w-9 rounded-xl text-sm font-semibold transition',
+              it === page ? 'bg-brand-600 text-white' : 'border border-ink-200 text-ink-600 hover:bg-ink-50',
+            )}
+          >
+            {it}
+          </button>
+        ),
+      )}
+      <button
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        className="h-9 rounded-xl border border-ink-200 px-3 text-sm font-semibold text-ink-600 disabled:opacity-40"
+      >
+        →
+      </button>
+    </div>
+  );
+}

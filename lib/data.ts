@@ -1,10 +1,10 @@
-import { isMock } from './config';
+import { isMockMode } from './config';
 import { supabase, requireSupabase } from './supabaseClient';
 import {
   loadStore, saveStore, mockHelpers,
 } from './mock/store';
 import type {
-  Product, GeneratedLink, CopyGeneration, WhatsappInstance, WhatsappGroup, DispatchItem, AppUser,
+  Product, GeneratedLink, CopyGeneration, WhatsappInstance, WhatsappGroup, DispatchItem, AppUser, ProductSource,
 } from '@/types';
 
 // ===========================================================================
@@ -17,7 +17,7 @@ function g() { return requireSupabase(); }
 
 // ---------- AUTH ----------
 export async function signInWithMagicLink(email: string): Promise<{ error?: string }> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     s.user = { id: 'demo-user', email, organizationId: mockHelpers.DEMO_ORG, isSuperAdmin: false };
     saveStore(s);
@@ -31,7 +31,10 @@ export async function signInWithMagicLink(email: string): Promise<{ error?: stri
 }
 
 export async function signOut(): Promise<void> {
-  if (isMock) {
+  if (isMockMode()) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('catalogo_viral_demo_active');
+    }
     const s = loadStore();
     s.user = null;
     saveStore(s);
@@ -42,16 +45,19 @@ export async function signOut(): Promise<void> {
   invalidateUserCache();
 }
 
-// Entra em modo demo forçado: salva um user虚构 no localStorage para teste rápido,
-// mesmo quando o Supabase está configurado. O AuthProvider lê isso como fallback.
+// Entra em modo demo forçado: salva um user no localStorage para teste rápido,
+// mesmo quando o Supabase está configurado. Seta a flag que força isMockMode().
 export async function signInDemo(email: string): Promise<void> {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem('catalogo_viral_demo_active', '1');
+  }
   const s = loadStore();
   s.user = { id: 'demo-user', email, organizationId: mockHelpers.DEMO_ORG, isSuperAdmin: false };
   saveStore(s);
 }
 
 export async function getCurrentUser(): Promise<AppUser | null> {
-  if (isMock) return loadStore().user;
+  if (isMockMode()) return loadStore().user;
   return getCachedUser();
 }
 
@@ -82,36 +88,121 @@ async function getCachedUser(): Promise<AppUser | null> {
 // Invalida o cache (usar após signOut / mudança de perfil).
 export function invalidateUserCache() { _userCache = null; }
 
+// ---------- PROFILE ----------
+export async function getProfile(): Promise<{
+  organizationId: string; affiliateIdShopee?: string | null; affiliateIdTiktok?: string | null;
+} | null> {
+  const u = await getCurrentUser();
+  if (!u) return null;
+  const { data } = await g().from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', u.id).single();
+  if (!data) return null;
+  return {
+    organizationId: data.organization_id,
+    affiliateIdShopee: data.affiliate_id_shopee ?? null,
+    affiliateIdTiktok: data.affiliate_id_tiktok ?? null,
+  };
+}
+
+export async function updateProfile(input: { affiliateIdShopee?: string; affiliateIdTiktok?: string }): Promise<{ error?: string }> {
+  const u = await getCurrentUser();
+  if (!u) return { error: 'não autenticado' };
+  const { error } = await g().from('profiles').update({
+    affiliate_id_shopee: input.affiliateIdShopee ?? null,
+    affiliate_id_tiktok: input.affiliateIdTiktok ?? null,
+  }).eq('id', u.id);
+  invalidateUserCache();
+  return { error: error?.message };
+}
+
 // ---------- PRODUCTS ----------
-export async function fetchTopProducts(opts: { limit: number; sortBy: 'commission' | 'sales' }): Promise<Product[]> {
-  if (isMock) {
+export type ProductFilter = {
+  search?: string;
+  source?: ProductSource | 'all';
+  sortBy?: 'commission' | 'sales' | 'price_asc' | 'price_desc';
+  page?: number;
+  pageSize?: number;
+};
+
+export async function fetchTopProducts(opts: ProductFilter & { limit?: number } = {}): Promise<Product[]> {
+  const {
+    search = '', source = 'all', sortBy = 'commission',
+    page = 1, pageSize = 24, limit,
+  } = opts;
+
+  if (isMockMode()) {
     const s = loadStore();
-    const items = s.products.filter((p) => p.active && p.organizationId === s.user?.organizationId);
-    items.sort((a, b) => opts.sortBy === 'commission'
-      ? b.commissionPct - a.commissionPct
+    let items = s.products.filter((p) => p.active && p.organizationId === s.user?.organizationId);
+    // atalho demo (org marcador) usa seed local
+    if (s.user?.organizationId === mockHelpers.DEMO_ORG) items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
+    if (search) items = items.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+    if (source !== 'all') items = items.filter((p) => p.source === source);
+    items.sort((a, b) => sortBy === 'commission' ? b.commissionPct - a.commissionPct
+      : sortBy === 'price_asc' ? a.promoPrice - b.promoPrice
+      : sortBy === 'price_desc' ? b.promoPrice - a.promoPrice
       : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return items.slice(0, opts.limit);
+    const n = limit ?? pageSize;
+    return items.slice((page - 1) * n, page * n);
   }
+
   const orgId = (await getCurrentUser())?.organizationId
     ?? (typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem('catalogo_viral_store_v1') || '{}')?.user?.organizationId : null);
   if (!orgId) return [];
-  // Atalho demo: se o org for o marcador DEMO_ORG, usa o seed local (modo real ligado).
   if (orgId === mockHelpers.DEMO_ORG) {
     const s = loadStore();
-    const items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
-    items.sort((a, b) => opts.sortBy === 'commission'
-      ? b.commissionPct - a.commissionPct
+    let items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
+    if (search) items = items.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+    if (source !== 'all') items = items.filter((p) => p.source === source);
+    items.sort((a, b) => sortBy === 'commission' ? b.commissionPct - a.commissionPct
+      : sortBy === 'price_asc' ? a.promoPrice - b.promoPrice
+      : sortBy === 'price_desc' ? b.promoPrice - a.promoPrice
       : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return items.slice(0, opts.limit);
+    const n = limit ?? pageSize;
+    return items.slice((page - 1) * n, page * n);
   }
-  let q = g().from('products').select('*').eq('organization_id', orgId).eq('active', true).limit(opts.limit);
-  q = opts.sortBy === 'commission' ? q.order('commission_pct', { ascending: false }) : q.order('created_at', { ascending: false });
+
+  let q = g().from('products').select('*').eq('organization_id', orgId).eq('active', true);
+  if (search) q = q.ilike('name', `%${search}%`);
+  if (source !== 'all') q = q.eq('source', source);
+  q = sortBy === 'commission' ? q.order('commission_pct', { ascending: false })
+    : sortBy === 'price_asc' ? q.order('promo_price', { ascending: true })
+    : sortBy === 'price_desc' ? q.order('promo_price', { ascending: false })
+    : q.order('created_at', { ascending: false });
+  const n = limit ?? pageSize;
+  q = q.range((page - 1) * n, page * n - 1);
   const { data } = await q;
   return (data ?? []).map(rowToProduct);
 }
 
+export async function countProducts(f: ProductFilter = {}): Promise<number> {
+  const { search = '', source = 'all' } = f;
+  if (isMockMode()) {
+    const s = loadStore();
+    let items = s.products.filter((p) => p.active && p.organizationId === s.user?.organizationId);
+    if (source !== 'all') items = items.filter((p) => p.source === source);
+    if (search) items = items.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+    return items.length;
+  }
+  const orgId = (await getCurrentUser())?.organizationId;
+  if (!orgId) return 0;
+  let q = g().from('products').select('*', { count: 'exact', head: true }).eq('organization_id', orgId).eq('active', true);
+  if (search) q = q.ilike('name', `%${search}%`);
+  if (source !== 'all') q = q.eq('source', source);
+  const { count } = await q;
+  return count ?? 0;
+}
+
+// Gera o link de afiliado real a partir do original + ID do afiliado da plataforma.
+// Shopee: injeta ?utm_source=...&affiliate_id=<id>; TikTok: ?affiliate_id=<id>
+export function buildAffiliateLink(originalLink: string, source: ProductSource, affiliateId?: string | null): string {
+  if (!affiliateId) return originalLink;
+  const sep = originalLink.includes('?') ? '&' : '?';
+  if (source === 'shopee') return `${originalLink}${sep}utm_source=share&affiliate_id=${encodeURIComponent(affiliateId)}`;
+  if (source === 'tiktok') return `${originalLink}${sep}affiliate_id=${encodeURIComponent(affiliateId)}`;
+  return originalLink;
+}
+
 export async function importProducts(rows: Omit<Product, 'id' | 'createdAt' | 'active' | 'organizationId'>[]): Promise<{ error?: string }> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const orgId = s.user?.organizationId ?? mockHelpers.DEMO_ORG;
     const newOnes: Product[] = rows.map((r) => ({
@@ -129,8 +220,11 @@ export async function importProducts(rows: Omit<Product, 'id' | 'createdAt' | 'a
 }
 
 // ---------- LINKS ----------
-export async function generateAffiliateLink(productId: string): Promise<string> {
-  if (isMock) {
+export async function generateAffiliateLink(
+  productId: string,
+  opts: { utmSource?: string; channel?: 'whatsapp' | 'instagram' | 'generic' } = {},
+): Promise<string> {
+  if (isMockMode()) {
     const s = loadStore();
     const id = mockHelpers.uid('l');
     s.links.push({
@@ -149,7 +243,7 @@ export async function generateAffiliateLink(productId: string): Promise<string> 
 }
 
 export async function fetchUserLinks(): Promise<GeneratedLink[]> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     return s.links.filter((l) => l.userId === s.user?.id);
   }
@@ -159,7 +253,7 @@ export async function fetchUserLinks(): Promise<GeneratedLink[]> {
 }
 
 export async function resolveRedirect(linkId: string): Promise<string | null> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const link = s.links.find((l) => l.id === linkId || l.shortPath === `/r/${linkId}`);
     if (!link) return null;
@@ -183,7 +277,7 @@ export async function resolveRedirect(linkId: string): Promise<string | null> {
 export async function saveCopyGeneration(input: {
   productId: string; copies: string[]; videoScript: string;
 }): Promise<CopyGeneration> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const cg: CopyGeneration = {
       id: mockHelpers.uid('c'), organizationId: s.user?.organizationId ?? '', productId: input.productId,
@@ -204,7 +298,7 @@ export async function saveCopyGeneration(input: {
 }
 
 export async function fetchUserCopies(): Promise<CopyGeneration[]> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     return s.copies.filter((c) => c.userId === s.user?.id);
   }
@@ -215,7 +309,7 @@ export async function fetchUserCopies(): Promise<CopyGeneration[]> {
 
 // ---------- WHATSAPP ----------
 export async function createInstance(name: string): Promise<WhatsappInstance> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const inst: WhatsappInstance = {
       id: mockHelpers.uid('i'), organizationId: s.user?.organizationId ?? '', userId: s.user?.id ?? '',
@@ -235,7 +329,7 @@ export async function createInstance(name: string): Promise<WhatsappInstance> {
 }
 
 export async function setInstanceStatus(id: string, status: WhatsappInstance['status']): Promise<void> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const inst = s.instances.find((i) => i.id === id);
     if (inst) inst.status = status;
@@ -253,20 +347,20 @@ export async function setInstanceStatus(id: string, status: WhatsappInstance['st
 }
 
 export async function fetchInstances(): Promise<WhatsappInstance[]> {
-  if (isMock) return loadStore().instances.filter((i) => i.userId === loadStore().user?.id);
+  if (isMockMode()) return loadStore().instances.filter((i) => i.userId === loadStore().user?.id);
   const u = await getCurrentUser();
   const { data } = await g().from('whatsapp_instances').select('*').eq('user_id', u?.id);
   return (data ?? []).map(rowToInstance);
 }
 
 export async function fetchGroups(instanceId: string): Promise<WhatsappGroup[]> {
-  if (isMock) return loadStore().groups.filter((g) => g.instanceId === instanceId && g.isActive);
+  if (isMockMode()) return loadStore().groups.filter((g) => g.instanceId === instanceId && g.isActive);
   const { data } = await g().from('whatsapp_groups').select('*').eq('instance_id', instanceId).eq('is_active', true);
   return (data ?? []).map(rowToGroup);
 }
 
 export async function enqueueDispatch(input: { copyText: string; groupIds: string[] }): Promise<DispatchItem> {
-  if (isMock) {
+  if (isMockMode()) {
     const s = loadStore();
     const item: DispatchItem = {
       id: mockHelpers.uid('d'), organizationId: s.user?.organizationId ?? '', userId: s.user?.id ?? '',
@@ -286,13 +380,13 @@ export async function enqueueDispatch(input: { copyText: string; groupIds: strin
 }
 
 export async function fetchUserDispatches(): Promise<DispatchItem[]> {
-  if (isMock) return loadStore().dispatches.filter((d) => d.userId === loadStore().user?.id);
+  if (isMockMode()) return loadStore().dispatches.filter((d) => d.userId === loadStore().user?.id);
   const u = await getCurrentUser();
   const { data } = await g().from('dispatch_queue').select('*').eq('user_id', u?.id).order('created_at', { ascending: false });
   return (data ?? []).map(rowToDispatch);
 }
 
-export function isDemoMode(): boolean { return isMock; }
+export function isDemoMode(): boolean { return isMockMode(); }
 
 // ---------- ROW MAPPERS ----------
 function rowToProduct(r: Record<string, unknown>): Product {
@@ -300,7 +394,8 @@ function rowToProduct(r: Record<string, unknown>): Product {
     id: r.id as string, organizationId: r.organization_id as string, name: r.name as string,
     imageUrl: (r.image_url as string) ?? null, originalPrice: Number(r.original_price),
     promoPrice: Number(r.promo_price), commissionPct: Number(r.commission_pct),
-    originalLink: r.original_link as string, source: r.source as Product['source'], active: Boolean(r.active),
+    originalLink: r.original_link as string, affiliateLink: (r.affiliate_link as string) ?? null,
+    source: r.source as Product['source'], active: Boolean(r.active),
     createdAt: r.created_at as string,
   };
 }

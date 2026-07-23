@@ -18,6 +18,7 @@ function DashboardInner() {
   const [links, setLinks] = useState<GeneratedLink[] | null>(null);
   const [dispatches, setDispatches] = useState<DispatchItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -29,6 +30,25 @@ function DashboardInner() {
 
   const totalClicks = (links ?? []).reduce((s, l) => s + l.clicks, 0);
   const sent = dispatches.filter((d) => d.status === 'sent').length;
+
+  // agrupa cliques por produto para o "top produtos"
+  const byProduct = (links ?? []).reduce<Record<string, number>>((acc, l) => {
+    acc[l.productId] = (acc[l.productId] ?? 0) + l.clicks;
+    return acc;
+  }, {});
+  const topProducts = products
+    .map((p) => ({ product: p, clicks: byProduct[p.id] ?? 0 }))
+    .filter((x) => x.clicks > 0)
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, 5);
+  const maxClicks = topProducts[0]?.clicks ?? 1;
+
+  async function copyLink(shortPath: string) {
+    const full = `${typeof window !== 'undefined' ? window.location.origin : ''}${shortPath}`;
+    await navigator.clipboard.writeText(full);
+    setCopiedId(shortPath);
+    setTimeout(() => setCopiedId(null), 1500);
+  }
 
   return (
     <div className="space-y-6">
@@ -49,6 +69,31 @@ function DashboardInner() {
         </Card>
       </div>
 
+      {/* TOP PRODUTOS POR CLIQUE */}
+      {topProducts.length > 0 && (
+        <div>
+          <SectionTitle title="Produtos com mais cliques" />
+          <Card className="space-y-3 p-5">
+            {topProducts.map(({ product, clicks }) => (
+              <div key={product.id}>
+                <div className="mb-1 flex items-center justify-between text-sm">
+                  <span className="truncate font-medium text-ink-700">{product.name}</span>
+                  <span className="font-semibold text-brand-700">{clicks}</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-ink-100">
+                  <motion.div
+                    className="h-full bg-brand-gradient"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(clicks / maxClicks) * 100}%` }}
+                    transition={{ duration: 0.6 }}
+                  />
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+
       <div>
         <SectionTitle title="Links gerados" />
         {!links ? (
@@ -67,9 +112,20 @@ function DashboardInner() {
                       <code className="text-xs text-brand-600">{l.shortPath}</code>
                       <p className="text-xs text-ink-400">criado em {formatDate(l.createdAt)}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="font-display text-2xl font-extrabold text-brand-700">{l.clicks}</p>
-                      <p className="text-xs text-ink-400">cliques</p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="font-display text-2xl font-extrabold text-brand-700">{l.clicks}</p>
+                        <p className="text-xs text-ink-400">cliques</p>
+                      </div>
+                      <button
+                        onClick={() => copyLink(l.shortPath)}
+                        className={clsx(
+                          'rounded-xl px-3 py-2 text-sm font-semibold transition',
+                          copiedId === l.shortPath ? 'bg-emerald-100 text-emerald-700' : 'bg-ink-100 text-ink-700 hover:bg-ink-200',
+                        )}
+                      >
+                        {copiedId === l.shortPath ? '✓ Copiado' : 'Copiar'}
+                      </button>
                     </div>
                   </Card>
                 </motion.div>
