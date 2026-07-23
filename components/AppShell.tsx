@@ -10,6 +10,7 @@ const NAV = [
   { href: '/whatsapp', label: 'WhatsApp' },
   { href: '/dispatch', label: 'Disparar' },
   { href: '/dashboard', label: 'Meus Links' },
+  { href: '/perfil', label: 'Perfil' },
 ];
 
 function Logo() {

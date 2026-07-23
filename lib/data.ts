@@ -94,6 +94,13 @@ export async function getProfile(): Promise<{
 } | null> {
   const u = await getCurrentUser();
   if (!u) return null;
+  if (isMockMode()) {
+    return {
+      organizationId: u.organizationId,
+      affiliateIdShopee: u.affiliateIdShopee ?? null,
+      affiliateIdTiktok: u.affiliateIdTiktok ?? null,
+    };
+  }
   const { data } = await g().from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', u.id).single();
   if (!data) return null;
   return {
@@ -106,6 +113,15 @@ export async function getProfile(): Promise<{
 export async function updateProfile(input: { affiliateIdShopee?: string; affiliateIdTiktok?: string }): Promise<{ error?: string }> {
   const u = await getCurrentUser();
   if (!u) return { error: 'não autenticado' };
+  if (isMockMode()) {
+    const s = loadStore();
+    if (s.user) {
+      s.user.affiliateIdShopee = input.affiliateIdShopee ?? s.user.affiliateIdShopee ?? null;
+      s.user.affiliateIdTiktok = input.affiliateIdTiktok ?? s.user.affiliateIdTiktok ?? null;
+      saveStore(s);
+    }
+    return {};
+  }
   const { error } = await g().from('profiles').update({
     affiliate_id_shopee: input.affiliateIdShopee ?? null,
     affiliate_id_tiktok: input.affiliateIdTiktok ?? null,
@@ -214,12 +230,21 @@ export async function importProducts(rows: Omit<Product, 'id' | 'createdAt' | 'a
   }
   const orgId = (await getCurrentUser())?.organizationId;
   const { error } = await requireSupabase().from('products').insert(
-    rows.map((r) => ({ ...r, organization_id: orgId, active: true })),
+    rows.map((r) => ({ organization_id: orgId, name: r.name, image_url: r.imageUrl, original_price: r.originalPrice, promo_price: r.promoPrice, commission_pct: r.commissionPct, original_link: r.originalLink, affiliate_link: r.affiliateLink, source: r.source, active: true })),
   );
   return { error: error?.message };
 }
 
 // ---------- LINKS ----------
+export async function fetchProductById(id: string): Promise<Product | null> {
+  if (isMockMode()) {
+    const s = loadStore();
+    return s.products.find((p) => p.id === id) ?? null;
+  }
+  const { data } = await g().from('products').select('*').eq('id', id).single();
+  return data ? rowToProduct(data as Record<string, unknown>) : null;
+}
+
 export async function generateAffiliateLink(
   productId: string,
   opts: { utmSource?: string; channel?: 'whatsapp' | 'instagram' | 'generic' } = {},
@@ -227,16 +252,32 @@ export async function generateAffiliateLink(
   if (isMockMode()) {
     const s = loadStore();
     const id = mockHelpers.uid('l');
+    const product = s.products.find((p) => p.id === productId) ?? null;
+    const affiliateId = product?.source === 'shopee' ? s.user?.affiliateIdShopee
+      : product?.source === 'tiktok' ? s.user?.affiliateIdTiktok : undefined;
+    const affiliateLink = product ? buildAffiliateLink(product.originalLink, product.source, affiliateId) : null;
     s.links.push({
       id, organizationId: s.user?.organizationId ?? '', userId: s.user?.id ?? '', productId,
-      shortPath: `/r/${id}`, clicks: 0, createdAt: new Date().toISOString(),
+      shortPath: `/r/${id}`, affiliateLink, clicks: 0, createdAt: new Date().toISOString(),
     });
     saveStore(s);
     return `/r/${id}`;
   }
   const u = await getCurrentUser();
+  // tenta construir o deep link de afiliado real (Shopee/TikTok) se o usuário cadastrou ID
+  const [product, profile] = await Promise.all([
+    fetchProductById(productId),
+    getProfile(),
+  ]);
+  const affiliateId = product?.source === 'shopee' ? profile?.affiliateIdShopee
+    : product?.source === 'tiktok' ? profile?.affiliateIdTiktok : undefined;
+  const affiliateLink = product ? buildAffiliateLink(product.originalLink, product.source, affiliateId) : null;
+  const utm = opts.utmSource ?? opts.channel ?? 'catalogoviral';
   const { data, error } = await g().from('generated_links')
-    .insert({ organization_id: u?.organizationId, user_id: u?.id, product_id: productId })
+    .insert({
+      organization_id: u?.organizationId, user_id: u?.id, product_id: productId,
+      utm_source: utm, affiliate_link: affiliateLink,
+    })
     .select('id').single();
   if (error || !data) throw new Error(error?.message ?? 'falha ao gerar link');
   return `/r/${data.id}`;
@@ -260,17 +301,25 @@ export async function resolveRedirect(linkId: string): Promise<string | null> {
     link.clicks += 1;
     saveStore(s);
     const p = s.products.find((x) => x.id === link.productId);
-    return p?.originalLink ?? null;
+    // deep link de afiliado tem prioridade
+    return link.affiliateLink || p?.originalLink || p?.affiliateLink || null;
   }
   // 1) valida existência e pega o link original ANTES de contar
   const { data, error } = await g().from('generated_links')
-    .select('id, product_id, products(original_link)').eq('id', linkId).single();
+    .select('id, product_id, affiliate_link, products(original_link)').eq('id', linkId).single();
   if (error || !data) return null; // link inexistente -> 404, sem incrementar lixo
   const originalLink = (data.products as { original_link?: string } | undefined)?.original_link ?? null;
   if (!originalLink) return null;
-  // 2) só agora incrementa (RPC atômica)
+  // deep link de afiliado tem prioridade (Shopee/TikTok com ID do afiliado)
+  const destination = (data.affiliate_link as string | null) || originalLink;
+  // 2) só agora incrementa (RPC atômica) + registra evento de clique (graceful)
   await g().rpc('increment_link_clicks', { link_id: linkId });
-  return originalLink;
+  void g().from('link_events').insert({
+    organization_id: (await getCurrentUser())?.organizationId,
+    link_id: linkId, product_id: data.product_id, user_id: (await getCurrentUser())?.id,
+    event_type: 'click',
+  }).then(() => {}, () => {}); // ignora erro se a tabela link_events ainda não existir
+  return destination;
 }
 
 // ---------- COPY ----------
@@ -402,7 +451,8 @@ function rowToProduct(r: Record<string, unknown>): Product {
 function rowToLink(r: Record<string, unknown>): GeneratedLink {
   return {
     id: r.id as string, organizationId: r.organization_id as string, userId: r.user_id as string,
-    productId: r.product_id as string, shortPath: `/r/${r.id as string}`, clicks: Number(r.clicks),
+    productId: r.product_id as string, shortPath: `/r/${r.id as string}`,
+    affiliateLink: (r.affiliate_link as string) ?? null, clicks: Number(r.clicks),
     createdAt: r.created_at as string,
   };
 }

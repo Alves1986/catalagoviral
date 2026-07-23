@@ -29,6 +29,8 @@ export function ProductCard({ product, index }: { product: Product; index: numbe
       await navigator.clipboard.writeText(`${window.location.origin}${path}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // clipboard pode falhar em contexto sem permissão; o link já foi gerado
     } finally {
       setLinkLoading(false);
     }

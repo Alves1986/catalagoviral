@@ -67,11 +67,11 @@ function seed(): MockStore {
   ];
 
   return {
-    user: { id: 'demo-user', email: 'demo@catalogoviral.app', organizationId: DEMO_ORG, isSuperAdmin: false },
+    user: { id: 'demo-user', email: 'demo@catalogoviral.app', organizationId: DEMO_ORG, isSuperAdmin: false, affiliateIdShopee: null, affiliateIdTiktok: null },
     products,
     links: [
-      { id: 'l1', organizationId: DEMO_ORG, userId: 'demo-user', productId: 'p2', shortPath: '/r/l1', clicks: 42, createdAt: new Date(Date.now() - 86400000).toISOString() },
-      { id: 'l2', organizationId: DEMO_ORG, userId: 'demo-user', productId: 'p4', shortPath: '/r/l2', clicks: 17, createdAt: new Date(Date.now() - 86400000 * 2).toISOString() },
+      { id: 'l1', organizationId: DEMO_ORG, userId: 'demo-user', productId: 'p2', shortPath: '/r/l1', affiliateLink: null, clicks: 42, createdAt: new Date(Date.now() - 86400000).toISOString() },
+      { id: 'l2', organizationId: DEMO_ORG, userId: 'demo-user', productId: 'p4', shortPath: '/r/l2', affiliateLink: null, clicks: 17, createdAt: new Date(Date.now() - 86400000 * 2).toISOString() },
     ],
     copies: [],
     instances: [],

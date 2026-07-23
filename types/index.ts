@@ -21,6 +21,7 @@ export interface GeneratedLink {
   userId: string;
   productId: string;
   shortPath: string; // ex: /r/<id>
+  affiliateLink: string | null; // deep link de afiliado real (quando aplicável)
   clicks: number;
   createdAt: string;
 }
@@ -70,6 +71,8 @@ export interface AppUser {
   email: string;
   organizationId: string;
   isSuperAdmin: boolean;
+  affiliateIdShopee?: string | null;
+  affiliateIdTiktok?: string | null;
 }
 
 export interface RawProduct {
