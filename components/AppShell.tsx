@@ -15,9 +15,8 @@ const NAV = [
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-white font-display font-extrabold shadow-soft">
-        CV
-      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.png" alt="Catálogo Viral" className="h-9 w-9 rounded-xl shadow-soft" />
       <span className="font-display text-lg font-extrabold text-ink-900">
         Catálogo<span className="text-brand-gradient">Viral</span>
       </span>
