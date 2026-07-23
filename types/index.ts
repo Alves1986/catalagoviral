@@ -1,4 +1,20 @@
 export type ProductSource = 'shopee' | 'tiktok' | 'manual';
+export type ProductCategory =
+  | 'eletronicos' | 'moda' | 'casa' | 'beleza' | 'pets'
+  | 'esportes' | 'infantil' | 'livros' | 'automotivo' | 'geral';
+
+export const CATEGORIAS: { value: ProductCategory; label: string }[] = [
+  { value: 'eletronicos', label: 'Eletrônicos' },
+  { value: 'moda', label: 'Moda' },
+  { value: 'casa', label: 'Casa' },
+  { value: 'beleza', label: 'Beleza' },
+  { value: 'pets', label: 'Pets' },
+  { value: 'esportes', label: 'Esportes' },
+  { value: 'infantil', label: 'Infantil' },
+  { value: 'livros', label: 'Livros' },
+  { value: 'automotivo', label: 'Automotivo' },
+  { value: 'geral', label: 'Geral' },
+];
 
 export interface Product {
   id: string;
@@ -11,6 +27,9 @@ export interface Product {
   originalLink: string;
   affiliateLink: string | null; // link de afiliado real (Shopee/TikTok/Manual)
   source: ProductSource;
+  category: ProductCategory;
+  hot: boolean;
+  salesRank: number;
   active: boolean;
   createdAt: string;
 }

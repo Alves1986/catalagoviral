@@ -22,15 +22,20 @@ export function ProductCard({ product, index }: { product: Product; index: numbe
   const ganho = commissionValue(product.promoPrice, product.commissionPct);
   const src = sourceLabel[product.source];
 
-  async function divulgar() {
+  // 1 clique: gera o link de afiliado, copia e abre o modal de copy/disparo
+  async function gerarLink() {
     setLinkLoading(true);
     try {
       const path = await generateAffiliateLink(product.id);
-      await navigator.clipboard.writeText(`${window.location.origin}${path}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      if (typeof window !== 'undefined' && path) {
+        await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      }
+      setShowCopy(true);
     } catch {
-      // clipboard pode falhar em contexto sem permissão; o link já foi gerado
+      // mesmo se falhar o clipboard, abre o modal
+      setShowCopy(true);
     } finally {
       setLinkLoading(false);
     }
@@ -55,8 +60,11 @@ export function ProductCard({ product, index }: { product: Product; index: numbe
             ) : (
               <div className="grid h-full place-items-center text-ink-300">sem imagem</div>
             )}
-            <div className="absolute left-3 top-3">
+            <div className="absolute left-3 top-3 flex gap-1.5">
               <Badge className={src.cls}>{src.label}</Badge>
+              {product.hot && (
+                <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white shadow-soft">🔥 Quente</span>
+              )}
             </div>
             <div className="absolute right-3 top-3 rounded-full bg-brand-gradient px-3 py-1 text-xs font-bold text-white shadow-soft">
               {product.commissionPct}% COM
@@ -77,11 +85,11 @@ export function ProductCard({ product, index }: { product: Product; index: numbe
             </div>
 
             <div className="mt-4 flex gap-2">
-              <Button size="sm" variant="primary" onClick={divulgar} loading={linkLoading} className="flex-1">
-                {copied ? '✓ Link copiado!' : 'Divulgar'}
+              <Button size="sm" variant="primary" onClick={gerarLink} loading={linkLoading} className="flex-1">
+                {copied ? '✓ Link copiado!' : 'Gerar link'}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setShowCopy(true)} className="flex-1">
-                Gerar copy
+                Copy
               </Button>
             </div>
           </div>

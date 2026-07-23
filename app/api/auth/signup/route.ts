@@ -5,7 +5,7 @@ import { requireSupabaseServer } from '@/lib/supabaseServer';
 // Usa service role (server-only) — contorna a ausência de trigger no banco.
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, orgName } = await req.json();
+    const { email, password, orgName, fullName, whatsapp, city, state, pixKey, instagram } = await req.json();
     if (!email || !password) {
       return NextResponse.json({ error: 'email e senha são obrigatórios' }, { status: 400 });
     }
@@ -16,7 +16,15 @@ export async function POST(req: NextRequest) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { org_name: orgName || 'Minha Organização' },
+      user_metadata: {
+        org_name: orgName || 'Minha Organização',
+        full_name: fullName || '',
+        whatsapp: whatsapp || '',
+        city: city || '',
+        state: state || '',
+        pix_key: pixKey || '',
+        instagram: instagram || '',
+      },
     });
     if (ue) {
       if (/already been registered/.test(ue.message)) {
@@ -35,10 +43,19 @@ export async function POST(req: NextRequest) {
     if (oe) return NextResponse.json({ error: oe.message }, { status: 400 });
     const orgId = org.id;
 
-    // 3) profile
+    // 3) profile (já com os dados básicos de cadastro)
     const { error: pe } = await sb
       .from('profiles')
-      .upsert({ id: uid, organization_id: orgId });
+      .upsert({
+        id: uid,
+        organization_id: orgId,
+        full_name: fullName || null,
+        whatsapp: whatsapp || null,
+        city: city || null,
+        state: (state || null) as string | null,
+        pix_key: pixKey || null,
+        instagram: instagram || null,
+      });
     if (pe) return NextResponse.json({ error: pe.message }, { status: 400 });
 
     return NextResponse.json({ ok: true, userId: uid, organizationId: orgId });

@@ -23,7 +23,7 @@ export async function signIn(email: string, password: string): Promise<{ error?:
     saveStore(s);
     return {};
   }
-  const { error } = await g().auth.signInWithPassword({ email, password });
+  const { data, error } = await g().auth.signInWithPassword({ email, password });
   return { error: error?.message };
 }
 
@@ -55,8 +55,9 @@ async function getCachedUser(): Promise<AppUser | null> {
   const { data: { user } } = await g().auth.getUser();
   let appUser: AppUser | null = null;
   if (user) {
-    const { data: profile } = await g()
+    const { data: profile, error: pe } = await g()
       .from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok, full_name, whatsapp, city, state, pix_key, instagram').eq('id', user.id).maybeSingle();
+    if (pe) console.error('[getCachedUser] profile error', pe.message);
     appUser = {
       id: user.id,
       email: user.email ?? '',
@@ -161,14 +162,15 @@ export async function updateProfile(input: Partial<ProfileData>): Promise<{ erro
 export type ProductFilter = {
   search?: string;
   source?: ProductSource | 'all';
-  sortBy?: 'commission' | 'sales' | 'price_asc' | 'price_desc';
+  category?: string | 'all';
+  sortBy?: 'commission' | 'sales' | 'price_asc' | 'price_desc' | 'hot';
   page?: number;
   pageSize?: number;
 };
 
 export async function fetchTopProducts(opts: ProductFilter & { limit?: number } = {}): Promise<Product[]> {
   const {
-    search = '', source = 'all', sortBy = 'commission',
+    search = '', source = 'all', category = 'all', sortBy = 'commission',
     page = 1, pageSize = 24, limit,
   } = opts;
 
@@ -179,9 +181,11 @@ export async function fetchTopProducts(opts: ProductFilter & { limit?: number } 
     if (s.user?.organizationId === mockHelpers.DEMO_ORG) items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
     if (search) items = items.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
     if (source !== 'all') items = items.filter((p) => p.source === source);
+    if (category !== 'all') items = items.filter((p) => p.category === category);
     items.sort((a, b) => sortBy === 'commission' ? b.commissionPct - a.commissionPct
       : sortBy === 'price_asc' ? a.promoPrice - b.promoPrice
       : sortBy === 'price_desc' ? b.promoPrice - a.promoPrice
+      : sortBy === 'hot' ? (Number(b.hot) - Number(a.hot)) || (b.salesRank - a.salesRank)
       : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const n = limit ?? pageSize;
     return items.slice((page - 1) * n, page * n);
@@ -195,9 +199,11 @@ export async function fetchTopProducts(opts: ProductFilter & { limit?: number } 
     let items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
     if (search) items = items.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
     if (source !== 'all') items = items.filter((p) => p.source === source);
+    if (category !== 'all') items = items.filter((p) => p.category === category);
     items.sort((a, b) => sortBy === 'commission' ? b.commissionPct - a.commissionPct
       : sortBy === 'price_asc' ? a.promoPrice - b.promoPrice
       : sortBy === 'price_desc' ? b.promoPrice - a.promoPrice
+      : sortBy === 'hot' ? (Number(b.hot) - Number(a.hot)) || (b.salesRank - a.salesRank)
       : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const n = limit ?? pageSize;
     return items.slice((page - 1) * n, page * n);
@@ -206,9 +212,11 @@ export async function fetchTopProducts(opts: ProductFilter & { limit?: number } 
   let q = g().from('products').select('*').eq('organization_id', orgId).eq('active', true);
   if (search) q = q.ilike('name', `%${search}%`);
   if (source !== 'all') q = q.eq('source', source);
+  if (category !== 'all') q = q.eq('category', category);
   q = sortBy === 'commission' ? q.order('commission_pct', { ascending: false })
     : sortBy === 'price_asc' ? q.order('promo_price', { ascending: true })
     : sortBy === 'price_desc' ? q.order('promo_price', { ascending: false })
+    : sortBy === 'hot' ? q.order('hot', { ascending: false }).order('sales_rank', { ascending: false })
     : q.order('created_at', { ascending: false });
   const n = limit ?? pageSize;
   q = q.range((page - 1) * n, page * n - 1);
@@ -257,7 +265,7 @@ export async function importProducts(rows: Omit<Product, 'id' | 'createdAt' | 'a
   }
   const orgId = (await getCurrentUser())?.organizationId;
   const { error } = await requireSupabase().from('products').insert(
-    rows.map((r) => ({ organization_id: orgId, name: r.name, image_url: r.imageUrl, original_price: r.originalPrice, promo_price: r.promoPrice, commission_pct: r.commissionPct, original_link: r.originalLink, affiliate_link: r.affiliateLink, source: r.source, active: true })),
+    rows.map((r) => ({ organization_id: orgId, name: r.name, image_url: r.imageUrl, original_price: r.originalPrice, promo_price: r.promoPrice, commission_pct: r.commissionPct, original_link: r.originalLink, affiliate_link: r.affiliateLink, source: r.source, category: r.category ?? 'geral', hot: Boolean(r.hot), sales_rank: r.salesRank ?? 0, active: true })),
   );
   return { error: error?.message };
 }
@@ -471,7 +479,10 @@ function rowToProduct(r: Record<string, unknown>): Product {
     imageUrl: (r.image_url as string) ?? null, originalPrice: Number(r.original_price),
     promoPrice: Number(r.promo_price), commissionPct: Number(r.commission_pct),
     originalLink: r.original_link as string, affiliateLink: (r.affiliate_link as string) ?? null,
-    source: r.source as Product['source'], active: Boolean(r.active),
+    source: r.source as Product['source'],
+    category: (r.category as Product['category']) ?? 'geral',
+    hot: Boolean(r.hot), salesRank: Number(r.sales_rank ?? 0),
+    active: Boolean(r.active),
     createdAt: r.created_at as string,
   };
 }

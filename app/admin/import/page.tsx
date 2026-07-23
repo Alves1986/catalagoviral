@@ -7,10 +7,10 @@ import { Input, Label } from '@/components/ui/Input';
 import { importProducts } from '@/lib/data';
 import { isDemoMode } from '@/lib/config';
 
-const SAMPLE = `name,image_url,original_price,promo_price,commission_pct,original_link,source,affiliate_link
-"Cafeteira Premium","https://images.unsplash.com/photo-1495774856032-8b90bbb32b32?w=600&q=80",299.90,149.90,12,https://exemplo.com/cafeteira,shopee,
-"Fone Gamer RGB","https://images.unsplash.com/photo-1583394838336-acd977736f90?w=600&q=80",199.90,99.90,15,https://exemplo.com/fone,manual,
-"Luminária Smart","https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=600&q=80",159.90,79.90,18,https://exemplo.com/luminaria,tiktok,https://tiktok.com/shop/luminaria?affiliate_id=ABC123`;
+const SAMPLE = `name,image_url,original_price,promo_price,commission_pct,original_link,source,affiliate_link,category,hot,sales_rank
+"Cafeteira Premium","https://images.unsplash.com/photo-1495774856032-8b90bbb32b32?w=600&q=80",299.90,149.90,12,https://exemplo.com/cafeteira,shopee,,casa,false,0
+"Fone Gamer RGB","https://images.unsplash.com/photo-1583394838336-acd977736f90?w=600&q=80",199.90,99.90,15,https://exemplo.com/fone,manual,,eletronicos,true,3
+"Luminária Smart","https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=600&q=80",159.90,79.90,18,https://exemplo.com/luminaria,tiktok,https://tiktok.com/shop/luminaria?affiliate_id=ABC123,casa,true,5`;
 
 function parseCSV(text: string) {
   const lines = text.trim().split(/\r?\n/);
@@ -21,6 +21,8 @@ function parseCSV(text: string) {
     header.forEach((h, i) => (row[h] = cells[i] ?? ''));
     const src = (row.source || 'manual').toLowerCase();
     const source: 'shopee' | 'tiktok' | 'manual' = src === 'shopee' || src === 'tiktok' ? src : 'manual';
+    const validCats = ['eletronicos','moda','casa','beleza','pets','esportes','infantil','livros','automotivo','geral'];
+    const category = validCats.includes((row.category || 'geral').toLowerCase()) ? (row.category.toLowerCase() as any) : 'geral';
     return {
       name: row.name,
       imageUrl: row.image_url || null,
@@ -30,6 +32,9 @@ function parseCSV(text: string) {
       originalLink: row.original_link,
       affiliateLink: row.affiliate_link || null,
       source,
+      category,
+      hot: row.hot?.toLowerCase() === 'true' || row.hot === '1',
+      salesRank: Number(row.sales_rank || 0),
     };
   });
 }

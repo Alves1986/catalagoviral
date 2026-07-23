@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { signIn } from '@/lib/data';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Input, Label } from '@/components/ui/Input';
 import { Card } from '@/components/ui/primitives';
 
 export default function LoginPage() {
@@ -11,6 +11,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [orgName, setOrgName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [pixKey, setPixKey] = useState('');
+  const [instagram, setInstagram] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -31,7 +37,10 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, orgName }),
+        body: JSON.stringify({
+          email, password, orgName,
+          fullName, whatsapp, city, state, pixKey, instagram,
+        }),
       });
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? 'Falha no cadastro'); setLoading(false); return; }
@@ -88,6 +97,36 @@ export default function LoginPage() {
               <div>
                 <label className="block text-sm font-semibold text-ink-700 mb-1.5">Nome da organização</label>
                 <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Minha Organização" />
+              </div>
+
+              <div className="border-t border-ink-100 pt-4">
+                <p className="mb-3 text-sm font-semibold text-ink-800">Seus dados de cadastro</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="fullName">Nome completo</Label>
+                    <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Seu nome" />
+                  </div>
+                  <div>
+                    <Label htmlFor="whatsapp">WhatsApp</Label>
+                    <Input id="whatsapp" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(43) 99999-9999" />
+                  </div>
+                  <div>
+                    <Label htmlFor="city">Cidade</Label>
+                    <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Telêmaco Borba" />
+                  </div>
+                  <div>
+                    <Label htmlFor="state">Estado (UF)</Label>
+                    <Input id="state" value={state} onChange={(e) => setState(e.target.value)} placeholder="PR" maxLength={2} />
+                  </div>
+                  <div>
+                    <Label htmlFor="pixKey">Chave Pix</Label>
+                    <Input id="pixKey" value={pixKey} onChange={(e) => setPixKey(e.target.value)} placeholder="CPF / e-mail / telefone" />
+                  </div>
+                  <div>
+                    <Label htmlFor="instagram">Instagram</Label>
+                    <Input id="instagram" value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="@seu.perfil" />
+                  </div>
+                </div>
               </div>
               {error && <p className="text-sm text-rose-500">{error}</p>}
               {info && <p className="text-sm text-emerald-600">{info}</p>}

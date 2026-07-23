@@ -1,10 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Product } from '@/types';
+import type { Product, WhatsappGroup, WhatsappInstance } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/primitives';
-import { saveCopyGeneration } from '@/lib/data';
+import { saveCopyGeneration, fetchInstances, fetchGroups, enqueueDispatch } from '@/lib/data';
 import { formatBRL, clsx } from '@/lib/cn';
 
 interface CopyResult {
@@ -17,6 +17,23 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
   const [result, setResult] = useState<CopyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastCopied, setLastCopied] = useState<number | null>(null);
+
+  // disparo em grupos
+  const [instances, setInstances] = useState<WhatsappInstance[]>([]);
+  const [groups, setGroups] = useState<WhatsappGroup[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchMsg, setDispatchMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const inst = await fetchInstances();
+      setInstances(inst);
+      let g: WhatsappGroup[] = [];
+      for (const i of inst) if (i.status === 'connected') g = g.concat(await fetchGroups(i.id));
+      setGroups(g);
+    })();
+  }, []);
 
   async function gerar() {
     setLoading(true);
@@ -45,6 +62,27 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
     navigator.clipboard.writeText(text);
     setLastCopied(idx);
     setTimeout(() => setLastCopied(null), 1500);
+  }
+
+  function toggleGroup(id: string) {
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  }
+
+  async function disparar() {
+    if (selected.length === 0 || !result) return;
+    setDispatching(true);
+    setDispatchMsg(null);
+    try {
+      const text = result.copies[0] ?? result.videoScript;
+      // enfileira um item por grupo selecionado (ou um único com todos os groupIds)
+      await enqueueDispatch({ copyText: text, groupIds: selected });
+      setDispatchMsg(`✓ Enfileirado para ${selected.length} grupo(s). Acompanhe em "Disparar".`);
+      setSelected([]);
+    } catch (e) {
+      setDispatchMsg(e instanceof Error ? e.message : 'Falha ao enfileirar');
+    } finally {
+      setDispatching(false);
+    }
   }
 
   return (
@@ -116,6 +154,44 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
                   <p className="whitespace-pre-wrap text-sm text-ink-700">{result.videoScript}</p>
                 </div>
 
+                {/* DISPARO NOS GRUPOS */}
+                <div className="rounded-2xl border border-brand-200 bg-brand-50/40 p-3">
+                  <p className="text-sm font-semibold text-ink-800 mb-1">Disparar nos grupos do WhatsApp</p>
+                  {instances.length === 0 ? (
+                    <p className="text-xs text-amber-600">Conecte um número em <b>WhatsApp</b> para disparar.</p>
+                  ) : groups.length === 0 ? (
+                    <p className="text-xs text-amber-600">Nenhum grupo disponível neste número.</p>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto space-y-1 my-2">
+                      {groups.map((g) => {
+                        const on = selected.includes(g.id);
+                        return (
+                          <label
+                            key={g.id}
+                            className={clsx(
+                              'flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm',
+                              on ? 'bg-brand-100 text-brand-800' : 'bg-white text-ink-700',
+                            )}
+                          >
+                            <input type="checkbox" checked={on} onChange={() => toggleGroup(g.id)} className="accent-brand-600" />
+                            {g.groupName}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <Button
+                    variant="primary"
+                    fullWidth
+                    loading={dispatching}
+                    disabled={selected.length === 0}
+                    onClick={disparar}
+                  >
+                    Disparar em {selected.length > 0 ? `${selected.length} grupo(s)` : 'grupos'}
+                  </Button>
+                  {dispatchMsg && <p className="mt-2 text-xs text-emerald-600">{dispatchMsg}</p>}
+                </div>
+
                 <Button variant="secondary" fullWidth onClick={onClose}>Fechar</Button>
               </div>
             )}
@@ -125,3 +201,4 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
     </AnimatePresence>
   );
 }
+
