@@ -73,6 +73,12 @@ export interface AppUser {
   isSuperAdmin: boolean;
   affiliateIdShopee?: string | null;
   affiliateIdTiktok?: string | null;
+  fullName?: string | null;
+  whatsapp?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pixKey?: string | null;
+  instagram?: string | null;
 }
 
 export interface RawProduct {

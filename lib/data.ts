@@ -16,25 +16,19 @@ import type {
 function g() { return requireSupabase(); }
 
 // ---------- AUTH ----------
-export async function signInWithMagicLink(email: string): Promise<{ error?: string }> {
+export async function signIn(email: string, password: string): Promise<{ error?: string }> {
   if (isMockMode()) {
     const s = loadStore();
     s.user = { id: 'demo-user', email, organizationId: mockHelpers.DEMO_ORG, isSuperAdmin: false };
     saveStore(s);
     return {};
   }
-  const { error } = await g().auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined },
-  });
+  const { error } = await g().auth.signInWithPassword({ email, password });
   return { error: error?.message };
 }
 
 export async function signOut(): Promise<void> {
   if (isMockMode()) {
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('catalogo_viral_demo_active');
-    }
     const s = loadStore();
     s.user = null;
     saveStore(s);
@@ -43,17 +37,6 @@ export async function signOut(): Promise<void> {
   }
   await g().auth.signOut();
   invalidateUserCache();
-}
-
-// Entra em modo demo forçado: salva um user no localStorage para teste rápido,
-// mesmo quando o Supabase está configurado. Seta a flag que força isMockMode().
-export async function signInDemo(email: string): Promise<void> {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem('catalogo_viral_demo_active', '1');
-  }
-  const s = loadStore();
-  s.user = { id: 'demo-user', email, organizationId: mockHelpers.DEMO_ORG, isSuperAdmin: false };
-  saveStore(s);
 }
 
 export async function getCurrentUser(): Promise<AppUser | null> {
@@ -73,12 +56,20 @@ async function getCachedUser(): Promise<AppUser | null> {
   let appUser: AppUser | null = null;
   if (user) {
     const { data: profile } = await g()
-      .from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', user.id).single();
+      .from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok, full_name, whatsapp, city, state, pix_key, instagram').eq('id', user.id).maybeSingle();
     appUser = {
       id: user.id,
       email: user.email ?? '',
       organizationId: profile?.organization_id ?? '',
       isSuperAdmin: profile?.organization_id === null,
+      affiliateIdShopee: profile?.affiliate_id_shopee ?? null,
+      affiliateIdTiktok: profile?.affiliate_id_tiktok ?? null,
+      fullName: profile?.full_name ?? null,
+      whatsapp: profile?.whatsapp ?? null,
+      city: profile?.city ?? null,
+      state: profile?.state ?? null,
+      pixKey: profile?.pix_key ?? null,
+      instagram: profile?.instagram ?? null,
     };
   }
   _userCache = { value: appUser, at: now };
@@ -89,9 +80,19 @@ async function getCachedUser(): Promise<AppUser | null> {
 export function invalidateUserCache() { _userCache = null; }
 
 // ---------- PROFILE ----------
-export async function getProfile(): Promise<{
-  organizationId: string; affiliateIdShopee?: string | null; affiliateIdTiktok?: string | null;
-} | null> {
+export interface ProfileData {
+  organizationId?: string;
+  affiliateIdShopee?: string | null;
+  affiliateIdTiktok?: string | null;
+  fullName?: string | null;
+  whatsapp?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pixKey?: string | null;
+  instagram?: string | null;
+}
+
+export async function getProfile(): Promise<ProfileData | null> {
   const u = await getCurrentUser();
   if (!u) return null;
   if (isMockMode()) {
@@ -99,18 +100,32 @@ export async function getProfile(): Promise<{
       organizationId: u.organizationId,
       affiliateIdShopee: u.affiliateIdShopee ?? null,
       affiliateIdTiktok: u.affiliateIdTiktok ?? null,
+      fullName: u.fullName ?? null,
+      whatsapp: u.whatsapp ?? null,
+      city: u.city ?? null,
+      state: u.state ?? null,
+      pixKey: u.pixKey ?? null,
+      instagram: u.instagram ?? null,
     };
   }
-  const { data } = await g().from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', u.id).single();
+  const { data } = await g().from('profiles')
+    .select('organization_id, affiliate_id_shopee, affiliate_id_tiktok, full_name, whatsapp, city, state, pix_key, instagram')
+    .eq('id', u.id).maybeSingle();
   if (!data) return null;
   return {
     organizationId: data.organization_id,
     affiliateIdShopee: data.affiliate_id_shopee ?? null,
     affiliateIdTiktok: data.affiliate_id_tiktok ?? null,
+    fullName: data.full_name ?? null,
+    whatsapp: data.whatsapp ?? null,
+    city: data.city ?? null,
+    state: data.state ?? null,
+    pixKey: data.pix_key ?? null,
+    instagram: data.instagram ?? null,
   };
 }
 
-export async function updateProfile(input: { affiliateIdShopee?: string; affiliateIdTiktok?: string }): Promise<{ error?: string }> {
+export async function updateProfile(input: Partial<ProfileData>): Promise<{ error?: string }> {
   const u = await getCurrentUser();
   if (!u) return { error: 'não autenticado' };
   if (isMockMode()) {
@@ -118,6 +133,12 @@ export async function updateProfile(input: { affiliateIdShopee?: string; affilia
     if (s.user) {
       s.user.affiliateIdShopee = input.affiliateIdShopee ?? s.user.affiliateIdShopee ?? null;
       s.user.affiliateIdTiktok = input.affiliateIdTiktok ?? s.user.affiliateIdTiktok ?? null;
+      s.user.fullName = input.fullName ?? s.user.fullName ?? null;
+      s.user.whatsapp = input.whatsapp ?? s.user.whatsapp ?? null;
+      s.user.city = input.city ?? s.user.city ?? null;
+      s.user.state = input.state ?? s.user.state ?? null;
+      s.user.pixKey = input.pixKey ?? s.user.pixKey ?? null;
+      s.user.instagram = input.instagram ?? s.user.instagram ?? null;
       saveStore(s);
     }
     return {};
@@ -125,6 +146,12 @@ export async function updateProfile(input: { affiliateIdShopee?: string; affilia
   const { error } = await g().from('profiles').update({
     affiliate_id_shopee: input.affiliateIdShopee ?? null,
     affiliate_id_tiktok: input.affiliateIdTiktok ?? null,
+    full_name: input.fullName ?? null,
+    whatsapp: input.whatsapp ?? null,
+    city: input.city ?? null,
+    state: input.state ?? null,
+    pix_key: input.pixKey ?? null,
+    instagram: input.instagram ?? null,
   }).eq('id', u.id);
   invalidateUserCache();
   return { error: error?.message };
