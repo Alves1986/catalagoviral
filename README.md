@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Catálogo Viral
 
-## Getting Started
+Webapp para afiliados de e-commerce (Shopee / TikTok) — catálogo de produtos de alta
+comissão, geração de links rastreáveis, copy com IA e disparo em grupos de WhatsApp.
 
-First, run the development server:
+## Como rodar (modo demo sem backend)
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# abra http://localhost:3000 e clique em "Entrar (demo)"
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+No modo demo (sem credenciais), o app usa `localStorage` e Copy IA mock — **tudo funciona
+no navegador**, sem precisar de contas externas.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Modo produção (Supabase + OpenAI reais)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Crie um arquivo `.env.local` (ou defina na Vercel) com:
 
-## Learn More
+```
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=ey...
+SUPABASE_SERVICE_ROLE_KEY=ey...        # server-only, nunca exponha no cliente
+OPENAI_API_KEY=sk-...                  # server-only
+```
 
-To learn more about Next.js, take a look at the following resources:
+Ao definir as chaves do Supabase, o app automaticamente troca do modo demo para o modo
+real (RLS multi-tenant por `organization_id`). Rode o SQL em
+`supabase/migrations/0001_init.sql` no SQL Editor do Supabase.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Next.js 16 (App Router) + React 19 + TypeScript (strict)
+- Tailwind CSS 4 + Framer Motion
+- Supabase (Postgres + Auth + RLS)
+- OpenAI `gpt-4o-mini` (via route handler)
+- Evolution API (WhatsApp) — Docker Compose separado
 
-## Deploy on Vercel
+## Estrutura
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/                 rotas (catálogo, login, whatsapp, dispatch, dashboard, admin)
+lib/data.ts         CAMADA DE DADOS ÚNICA (mock ⇄ supabase)
+lib/config.ts       detecção de modo demo
+lib/mock/store.ts   estado local demo (seed de produtos)
+components/         UI (AppShell, ProductCard, CopyModal, RequireAuth)
+supabase/migrations/ schema + RLS
+```
