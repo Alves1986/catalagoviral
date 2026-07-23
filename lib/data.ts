@@ -25,7 +25,7 @@ export async function signInWithMagicLink(email: string): Promise<{ error?: stri
   }
   const { error } = await g().auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : undefined },
+    options: { emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined },
   });
   return { error: error?.message };
 }
@@ -38,6 +38,14 @@ export async function signOut(): Promise<void> {
     return;
   }
   await g().auth.signOut();
+}
+
+// Entra em modo demo forçado: salva um user虚构 no localStorage para teste rápido,
+// mesmo quando o Supabase está configurado. O AuthProvider lê isso como fallback.
+export async function signInDemo(email: string): Promise<void> {
+  const s = loadStore();
+  s.user = { id: 'demo-user', email, organizationId: mockHelpers.DEMO_ORG, isSuperAdmin: false };
+  saveStore(s);
 }
 
 export async function getCurrentUser(): Promise<AppUser | null> {
@@ -64,8 +72,18 @@ export async function fetchTopProducts(opts: { limit: number; sortBy: 'commissio
       : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return items.slice(0, opts.limit);
   }
-  const orgId = (await getCurrentUser())?.organizationId;
+  const orgId = (await getCurrentUser())?.organizationId
+    ?? (typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem('catalogo_viral_store_v1') || '{}')?.user?.organizationId : null);
   if (!orgId) return [];
+  // Atalho demo: se o org for o marcador DEMO_ORG, usa o seed local (modo real ligado).
+  if (orgId === mockHelpers.DEMO_ORG) {
+    const s = loadStore();
+    const items = s.products.filter((p) => p.active && p.organizationId === mockHelpers.DEMO_ORG);
+    items.sort((a, b) => opts.sortBy === 'commission'
+      ? b.commissionPct - a.commissionPct
+      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return items.slice(0, opts.limit);
+  }
   let q = g().from('products').select('*').eq('organization_id', orgId).eq('active', true).limit(opts.limit);
   q = opts.sortBy === 'commission' ? q.order('commission_pct', { ascending: false }) : q.order('created_at', { ascending: false });
   const { data } = await q;

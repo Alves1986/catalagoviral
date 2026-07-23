@@ -1,8 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { signInWithMagicLink, isDemoMode } from '@/lib/data';
+import { signInWithMagicLink, signInDemo, isDemoMode } from '@/lib/data';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/primitives';
@@ -13,7 +12,6 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   async function handle(e: React.FormEvent) {
     e.preventDefault();
@@ -22,13 +20,14 @@ export default function LoginPage() {
     const { error } = await signInWithMagicLink(email);
     setLoading(false);
     if (error) { setError(error); return; }
-    if (demo()) {
-      // Em modo demo não há e-mail real: salva e faz reload para o AuthProvider reler o estado.
-      await signInWithMagicLink(email);
-      window.location.assign('/');
-      return;
-    }
     setSent(true);
+  }
+
+  // Entra direto com um usuário demo (localStorage), útil para testar o app
+  // rapidamente mesmo quando o Supabase está configurado.
+  async function handleDemo() {
+    await signInDemo('demo@catalogoviral.app');
+    window.location.assign('/');
   }
 
   return (
@@ -40,9 +39,8 @@ export default function LoginPage() {
         className="w-full max-w-md"
       >
         <div className="mb-6 text-center">
-          <span className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-brand-gradient text-2xl font-extrabold text-white shadow-soft">
-            CV
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Catálogo Viral" className="mx-auto mb-3 h-14 w-14 rounded-2xl shadow-soft" />
           <h1 className="font-display text-3xl font-extrabold text-ink-900">Entrar no Catálogo Viral</h1>
           <p className="mt-1 text-ink-400">Afiliados que convertem, de forma simples.</p>
         </div>
@@ -53,6 +51,9 @@ export default function LoginPage() {
               <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-100 text-brand-600">✓</div>
               <p className="font-semibold text-ink-800">Link enviado!</p>
               <p className="mt-1 text-sm text-ink-400">Abra o e-mail <b>{email}</b> para acessar.</p>
+              <button onClick={handleDemo} className="mt-4 text-sm font-semibold text-brand-600 hover:underline">
+                ou entre em modo demo
+              </button>
             </div>
           ) : (
             <form onSubmit={handle} className="space-y-4">
@@ -68,11 +69,18 @@ export default function LoginPage() {
               </div>
               {error && <p className="text-sm text-rose-500">{error}</p>}
               <Button type="submit" fullWidth size="lg" loading={loading}>
-                {demo() ? 'Entrar (demo)' : 'Enviar link mágico'}
+                Enviar link mágico
               </Button>
+              <button
+                type="button"
+                onClick={handleDemo}
+                className="w-full text-center text-sm font-semibold text-brand-600 hover:underline"
+              >
+                Entrar em modo demo (sem e-mail)
+              </button>
               {demo() && (
                 <p className="text-center text-xs text-amber-600">
-                  Modo Demo ativo: nenhum e-mail será enviado. Clique para explorar o app com dados de exemplo.
+                  Modo Demo detectado: variáveis do Supabase ausentes. O app usa dados locais.
                 </p>
               )}
             </form>
