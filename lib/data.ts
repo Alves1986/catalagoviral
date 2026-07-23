@@ -35,9 +35,11 @@ export async function signOut(): Promise<void> {
     const s = loadStore();
     s.user = null;
     saveStore(s);
+    invalidateUserCache();
     return;
   }
   await g().auth.signOut();
+  invalidateUserCache();
 }
 
 // Entra em modo demo forçado: salva um user虚构 no localStorage para teste rápido,
@@ -50,17 +52,35 @@ export async function signInDemo(email: string): Promise<void> {
 
 export async function getCurrentUser(): Promise<AppUser | null> {
   if (isMock) return loadStore().user;
-  const { data: { user } } = await g().auth.getUser();
-  if (!user) return null;
-  const { data: profile } = await g()
-    .from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', user.id).single();
-  return {
-    id: user.id,
-    email: user.email ?? '',
-    organizationId: profile?.organization_id ?? '',
-    isSuperAdmin: profile?.organization_id === null,
-  };
+  return getCachedUser();
 }
+
+// Cache simples em memória (TTL 30s) para evitar N queries por tela.
+// getCurrentUser é chamado em quase toda função de dados.
+let _userCache: { value: AppUser | null; at: number } | null = null;
+const USER_TTL = 30_000;
+
+async function getCachedUser(): Promise<AppUser | null> {
+  const now = Date.now();
+  if (_userCache && now - _userCache.at < USER_TTL) return _userCache.value;
+  const { data: { user } } = await g().auth.getUser();
+  let appUser: AppUser | null = null;
+  if (user) {
+    const { data: profile } = await g()
+      .from('profiles').select('organization_id, affiliate_id_shopee, affiliate_id_tiktok').eq('id', user.id).single();
+    appUser = {
+      id: user.id,
+      email: user.email ?? '',
+      organizationId: profile?.organization_id ?? '',
+      isSuperAdmin: profile?.organization_id === null,
+    };
+  }
+  _userCache = { value: appUser, at: now };
+  return appUser;
+}
+
+// Invalida o cache (usar após signOut / mudança de perfil).
+export function invalidateUserCache() { _userCache = null; }
 
 // ---------- PRODUCTS ----------
 export async function fetchTopProducts(opts: { limit: number; sortBy: 'commission' | 'sales' }): Promise<Product[]> {
@@ -148,11 +168,15 @@ export async function resolveRedirect(linkId: string): Promise<string | null> {
     const p = s.products.find((x) => x.id === link.productId);
     return p?.originalLink ?? null;
   }
-  // incremento atômico via RPC
+  // 1) valida existência e pega o link original ANTES de contar
+  const { data, error } = await g().from('generated_links')
+    .select('id, product_id, products(original_link)').eq('id', linkId).single();
+  if (error || !data) return null; // link inexistente -> 404, sem incrementar lixo
+  const originalLink = (data.products as { original_link?: string } | undefined)?.original_link ?? null;
+  if (!originalLink) return null;
+  // 2) só agora incrementa (RPC atômica)
   await g().rpc('increment_link_clicks', { link_id: linkId });
-  const { data } = await g().from('generated_links')
-    .select('product_id, products(original_link)').eq('id', linkId).single();
-  return (data?.products as { original_link?: string } | undefined)?.original_link ?? null;
+  return originalLink;
 }
 
 // ---------- COPY ----------

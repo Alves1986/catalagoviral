@@ -14,6 +14,16 @@ const Ctx = createContext<AuthCtx>({ user: null, loading: true, refresh: async (
 
 export function useAuth() { return useContext(Ctx); }
 
+const DEMO_KEY = 'catalogo_viral_store_v1';
+
+function readDemoUser(): AppUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(DEMO_KEY);
+    return raw ? (JSON.parse(raw).user ?? null) : null;
+  } catch { return null; }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,22 +31,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function refresh() {
     setLoading(true);
     try {
-      // Em modo real, tenta a sessão do Supabase. Se não houver sessão,
-      // aceita um user "demo" salvo no localStorage (atalho de teste rápido).
       let u = await getCurrentUser();
-      if (!u && typeof window !== 'undefined') {
-        const raw = window.localStorage.getItem('catalogo_viral_store_v1');
-        if (raw) {
-          try { u = JSON.parse(raw).user ?? null; } catch { u = null; }
-        }
-      }
+      // fallback demo (atalho de teste) quando não há sessão Supabase
+      if (!u) u = readDemoUser();
       setUser(u);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+    // Reage a mudanças de sessão (login/logout/expiração) sem precisar de refresh manual.
+    let sub: { unsubscribe: () => void } | null = null;
+    import('@/lib/supabaseClient').then(({ supabase }) => {
+      if (!supabase) return;
+      const { data } = supabase.auth.onAuthStateChange(() => { refresh(); });
+      sub = data.subscription;
+    });
+    return () => { sub?.unsubscribe(); };
+  }, []);
 
   async function logout() {
     await signOut();
