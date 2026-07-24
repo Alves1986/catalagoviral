@@ -1,11 +1,13 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Product, WhatsappGroup, WhatsappInstance } from '@/types';
+import type { Product, WhatsappGroup } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/primitives';
-import { saveCopyGeneration, fetchInstances, fetchGroups, enqueueDispatch } from '@/lib/data';
+import { saveCopyGeneration } from '@/lib/data';
 import { formatBRL, clsx } from '@/lib/cn';
+
+interface EvolutionInst { name: string; connectionStatus: string; }
 
 interface CopyResult {
   copies: string[];
@@ -18,8 +20,8 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
   const [error, setError] = useState<string | null>(null);
   const [lastCopied, setLastCopied] = useState<number | null>(null);
 
-  // disparo em grupos
-  const [instances, setInstances] = useState<WhatsappInstance[]>([]);
+  // disparo em grupos (Evolution real)
+  const [instances, setInstances] = useState<EvolutionInst[]>([]);
   const [groups, setGroups] = useState<WhatsappGroup[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [dispatching, setDispatching] = useState(false);
@@ -27,11 +29,26 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
 
   useEffect(() => {
     (async () => {
-      const inst = await fetchInstances();
-      setInstances(inst);
-      let g: WhatsappGroup[] = [];
-      for (const i of inst) if (i.status === 'connected') g = g.concat(await fetchGroups(i.id));
-      setGroups(g);
+      try {
+        const res = await fetch('/api/evolution/instances');
+        const json = await res.json();
+        const list: EvolutionInst[] = json.instances ?? [];
+        setInstances(list);
+        let g: WhatsappGroup[] = [];
+        for (const i of list) {
+          if (i.connectionStatus === 'open' || i.connectionStatus === 'connected') {
+            const gr = await fetch(`/api/evolution/groups?instance=${encodeURIComponent(i.name)}`);
+            const gj = await gr.json();
+            g = g.concat((gj.groups ?? []).map((x: { id: string; subject: string; instanceName?: string }) => ({
+              id: x.id, instanceId: i.name, groupJid: x.id, groupName: x.subject, isActive: true,
+            })));
+          }
+        }
+        setGroups(g);
+      } catch {
+        setInstances([]);
+        setGroups([]);
+      }
     })();
   }, []);
 
@@ -72,17 +89,26 @@ export function CopyModal({ product, onClose }: { product: Product; onClose: () 
     if (selected.length === 0 || !result) return;
     setDispatching(true);
     setDispatchMsg(null);
-    try {
-      const text = result.copies[0] ?? result.videoScript;
-      // enfileira um item por grupo selecionado (ou um único com todos os groupIds)
-      await enqueueDispatch({ copyText: text, groupIds: selected });
-      setDispatchMsg(`✓ Enfileirado para ${selected.length} grupo(s). Acompanhe em "Disparar".`);
-      setSelected([]);
-    } catch (e) {
-      setDispatchMsg(e instanceof Error ? e.message : 'Falha ao enfileirar');
-    } finally {
-      setDispatching(false);
+    const text = result.copies[0] ?? result.videoScript;
+    const connected = instances.find((i) => i.connectionStatus === 'open' || i.connectionStatus === 'connected');
+    if (!connected) { setDispatchMsg('Nenhuma instância conectada.'); setDispatching(false); return; }
+    let okCount = 0;
+    const fails: string[] = [];
+    for (const groupJid of selected) {
+      const res = await fetch('/api/evolution/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instance: connected.name, groupJid, text }),
+      });
+      if (res.ok) okCount += 1; else { const j = await res.json().catch(() => ({})); fails.push(j.error ?? 'erro'); }
     }
+    setDispatchMsg(
+      fails.length === 0
+        ? `✓ Enviado para ${okCount} grupo(s) via ${connected.name}.`
+        : `Enviado: ${okCount}. Falhas: ${fails.length}. ${fails[0]}`,
+    );
+    setSelected([]);
+    setDispatching(false);
   }
 
   return (

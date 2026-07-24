@@ -10,6 +10,7 @@ const NAV = [
   { href: '/whatsapp', label: 'WhatsApp' },
   { href: '/dispatch', label: 'Disparar' },
   { href: '/dashboard', label: 'Meus Links' },
+  { href: '/planos', label: 'Planos' },
   { href: '/perfil', label: 'Perfil' },
 ];
 

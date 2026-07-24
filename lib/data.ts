@@ -521,3 +521,42 @@ function rowToDispatch(r: Record<string, unknown>): DispatchItem {
     createdAt: r.created_at as string,
   };
 }
+
+// ---------- ASSINATURA (SaaS) ----------
+export type SubscriptionStatus = 'pending' | 'active' | 'expired' | 'cancelled';
+export interface Subscription {
+  id: string;
+  status: SubscriptionStatus;
+  plan: 'annual';
+  startsAt: string | null;
+  endsAt: string | null;
+  mpPreferenceId?: string | null;
+}
+
+export async function getSubscription(): Promise<Subscription | null> {
+  const u = await getCurrentUser();
+  if (!u) return null;
+  if (isMockMode()) return null; // demo: sem assinatura (bloqueia catálogo real)
+  const { data } = await g()
+    .from('subscriptions')
+    .select('id, status, plan, starts_at, ends_at, mp_preference_id')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id as string,
+    status: data.status as SubscriptionStatus,
+    plan: (data.plan as 'annual') ?? 'annual',
+    startsAt: (data.starts_at as string) ?? null,
+    endsAt: (data.ends_at as string) ?? null,
+    mpPreferenceId: (data.mp_preference_id as string) ?? null,
+  };
+}
+
+export function isSubscriptionActive(sub: Subscription | null | undefined): boolean {
+  if (!sub) return false;
+  if (sub.status !== 'active') return false;
+  if (sub.endsAt && new Date(sub.endsAt) < new Date()) return false;
+  return true;
+}
